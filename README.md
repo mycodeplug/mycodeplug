@@ -5,7 +5,7 @@ Author: [Masen Furer](https://www.kf7hvm.com/)
 
 ## Status
 
-**2020/11/28** - this project is in the planning stages; development has not yet began
+**2020/11/28** - this project is in the planning stages; development has not yet begun
 
 ## Documentation
 
