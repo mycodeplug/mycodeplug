@@ -1,5 +1,6 @@
-# my-codeplug
-Online radio codeplug editor and sharing platform
+# [my-codeplug](http://mycodeplug.com)
+
+Online radio codeplug editor and sharing platform. Future home: mycodeplug.com
 
 Author: [Masen Furer](https://www.kf7hvm.com/)
 
