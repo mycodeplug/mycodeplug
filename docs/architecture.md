@@ -68,6 +68,9 @@ the channel list iteratively, adding or removing channels until all zones have b
 processed. This allows a linked zone to add, remove, or modify channels while
 maintaining a minimal diff from the upstream zone/channel.
 
+A scanlist is basically a zone that doesn't get generated as a zone in the codeplug,
+but for UI and database purposes it is identical: a list of channels.
+
 ## RadioConfig
 
 Callsign, DMR ID, startup message, various settings. It's going to differ widely from
@@ -110,3 +113,8 @@ screen and animates to slide between them.
 
 Double clicking a zone opens the default channel for the zone. The codeplug default
 channel is accessed via a menu drop-down.
+
+At the bottom of each column a `[+]` button allows the addition of a zone or
+channel from "new", "template", "import". Selecting template allows the user
+to search for an existing zone or channel in the system. Selecting import
+allows the user to upload a csv or other supported format.
