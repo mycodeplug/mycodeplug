@@ -1,0 +1,36 @@
+# Use postgres/example user/password credentials
+version: '3.1'
+
+services:
+
+  db:
+    image: postgres:14-alpine3.14
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - pg_data:/var/lib/postgresql
+      - ./src/schema/10_init.sql:/docker-entrypoint-initdb.d/10_init.sql
+      - ./src/schema/20_schema.sql:/docker-entrypoint-initdb.d/20_schema.sql
+      - ./src/schema/sample_data.sql:/docker-entrypoint-initdb.d/30_sample_data.sql
+
+  adminer:
+    image: adminer:4-standalone
+    restart: always
+    ports:
+      - 54321:8080
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - 8009:8009
+    environment:
+      PGHOST: db
+      PGUSER: mycodeplug
+      PGDATABASE: mycodeplug
+
+volumes:
+  pg_data:
