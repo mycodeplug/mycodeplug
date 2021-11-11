@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "mycodeplug"
+version = "0.1.0"
+description = "mycodeplug.com API server"
+authors = ["Masen Furer <kf7hvm@0x26.net>"]
+license = "AGPL"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.70.0"
+psycopg2-binary = "^2.9.1"
+uvicorn = "^0.15.0"
+python-jose = "^3.3.0"
+python-multipart = "^0.0.5"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.5"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
