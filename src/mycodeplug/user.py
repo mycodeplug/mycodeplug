@@ -1,5 +1,5 @@
 """
-User and Session management.
+User, Authentication and Session management.
 """
 import datetime
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -26,6 +26,49 @@ DEFAULT_EXPIRY = datetime.timedelta(days=14)
 OTP_VALIDITY_PERIOD = datetime.timedelta(minutes=5)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+class AuthenticationError(HTTPException):
+    DEFAULT_STATUS_CODE = 401  # Unauthorized
+    DEFAULT_DETAIL = "Incorrect email or password"
+    """The response seen by the user, NO SENSITIVE DATA!"""
+
+    def __init__(
+        self,
+        ctx: str = "",
+        **kwargs
+    ):
+        self.ctx = ctx
+        super().__init__(
+            status_code=kwargs.pop("status_code", self.DEFAULT_STATUS_CODE),
+            detail=kwargs.pop("detail", self.DEFAULT_DETAIL),
+            **kwargs,
+        )
+
+
+class InactiveUser(AuthenticationError):
+    DEFAULT_STATUS_CODE = 400
+    DEFAULT_DETAIL = "User is disabled or inactive. Contact admin."
+
+
+class UnknownUser(AuthenticationError, KeyError):
+    """The requested user was not found."""
+
+
+class ExpiredToken(AuthenticationError):
+    """The JWT presented is expired or the signature cannot be verified."""
+
+
+class InvalidToken(AuthenticationError):
+    """The token is otherwise valid but malformed -- maybe from a previous version."""
+
+
+class ExpiredOTP(AuthenticationError):
+    """The OTP for this user/ip combination is not valid or nonexistant."""
+
+
+class IncorrectOTP(AuthenticationError):
+    """Valid OTP for this user/ip was found, but the provided value does not match."""
 
 
 class Token(BaseModel):
@@ -66,8 +109,10 @@ class TokenData(BaseModel):
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             sub: str = payload["sub"]
             return cls(user_id=payload["user_id"], session_id=payload["session_id"])
-        except (JWTError, KeyError):
-            raise ValueError("Invalid Token")
+        except JWTError:
+            raise ExpiredToken("Expired Token or signature mismatch")
+        except KeyError:
+            raise InvalidToken("Invalid Token format: {}".format(payload))
 
 
 class User(BaseModel, DBModel):
@@ -104,7 +149,7 @@ class User(BaseModel, DBModel):
         Prefer lookup by id, if specified. Otherwise lookup by email address.
 
         :return: User instance if email is found
-        :raise: KeyError if id or email is not found
+        :raise: UnknownUser if id or email is not found
         """
         param = self.email
         condition = "email = %s"
@@ -123,7 +168,7 @@ class User(BaseModel, DBModel):
             c: psycopg2.extensions.cursor = conn.cursor()
             c.execute(query, (param,))
             if c.rowcount < 1:
-                raise KeyError("User not found")
+                raise UnknownUser(condition % param)
             row = c.fetchone()
             (
                 self.id,
@@ -178,7 +223,7 @@ class User(BaseModel, DBModel):
             conn.commit()
         return self
 
-    def _find_token(self, ip) -> (id, str):
+    def _find_token(self, ip) -> (int, str):
         get_query = """
             SELECT id, otp
             FROM otp
@@ -191,7 +236,7 @@ class User(BaseModel, DBModel):
             c: psycopg2.extensions.cursor = conn.cursor()
             c.execute(get_query, (self.id, ip))
             if c.rowcount != 1:
-                raise ValueError("Expired token")
+                raise ExpiredOTP("Expired token for {}".format(ip))
             return c.fetchone()
 
     def login(self, ip) -> str:
@@ -203,13 +248,15 @@ class User(BaseModel, DBModel):
 
         :param ip: IP address of the request (auth must match!)
         :return: otp used to authenticate the session
+        :raise: IncorrectOTP if the given (user, ip) pair already has
+            an active token (must wait before granting another).
         """
         try:
             old_token_data = self._find_token(ip)
-        except ValueError:
+            if old_token_data:
+                raise IncorrectOTP(detail="Previous token still active")
+        except ExpiredOTP:
             old_token_data = None
-        if old_token_data:
-            raise ValueError("Previous token still active")
         new_otp = "{:06}".format(random.randint(0,999999))
         hashed_otp = pwd_context.hash(new_otp)
         create_params = [
@@ -234,12 +281,13 @@ class User(BaseModel, DBModel):
         :param ip: IP requesting authentication must match IP passed to login()
         :param otp: One time password
         :return: TokenData
-        :raise: ValueError if OTP doesn't match or is expired
+        :raise: ExpiredOTP if the OTP doesn't exist or is expired
+        :raise: IncorrectOTP if OTP is found, but doesn't match
         """
         token_id, hashed_otp = self._find_token(ip=ip)
 
         if not pwd_context.verify(otp, hashed_otp):
-            raise ValueError("Bad token")
+            raise IncorrectOTP("Bad token")
 
         update_query = """
             UPDATE otp
@@ -282,5 +330,5 @@ async def get_current_active(current: User = Depends(get_current)) -> User:
     :return: User
     """
     if not current.enabled:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise InactiveUser()
     return current
