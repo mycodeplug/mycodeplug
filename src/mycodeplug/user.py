@@ -5,12 +5,14 @@ import datetime
 from ipaddress import IPv4Address, IPv6Address, ip_address
 import json
 import os
+import random
 from typing import Any, Dict, Optional, Union
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 import psycopg2.extensions
 import psycopg2.extras
 from pydantic import BaseModel
@@ -21,8 +23,9 @@ from .db import DBModel
 SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = "HS256"
 DEFAULT_EXPIRY = datetime.timedelta(days=14)
-OTP_VALIDITY_PERIOD = datetime.timedelta(minutes=30)
+OTP_VALIDITY_PERIOD = datetime.timedelta(minutes=5)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class Token(BaseModel):
@@ -175,6 +178,22 @@ class User(BaseModel, DBModel):
             conn.commit()
         return self
 
+    def _find_token(self, ip) -> (id, str):
+        get_query = """
+            SELECT id, otp
+            FROM otp
+            WHERE
+                user_id = %s AND
+                ip = %s AND
+                NOW() < expires
+        """
+        with self.conn() as conn:
+            c: psycopg2.extensions.cursor = conn.cursor()
+            c.execute(get_query, (self.id, ip))
+            if c.rowcount != 1:
+                raise ValueError("Expired token")
+            return c.fetchone()
+
     def login(self, ip) -> str:
         """
         Request login for the given user.
@@ -185,28 +204,28 @@ class User(BaseModel, DBModel):
         :param ip: IP address of the request (auth must match!)
         :return: otp used to authenticate the session
         """
-        invalidate_query = """
-            UPDATE otp
-            SET expires = NOW()
-            WHERE user_id = %s AND
-                  NOW() < expires;
-        """
+        try:
+            old_token_data = self._find_token(ip)
+        except ValueError:
+            old_token_data = None
+        if old_token_data:
+            raise ValueError("Previous token still active")
+        new_otp = "{:06}".format(random.randint(0,999999))
+        hashed_otp = pwd_context.hash(new_otp)
         create_params = [
             self.id,
             str(ip),
+            hashed_otp,
         ]
         create_query = """
-            INSERT INTO otp (user_id, ip)
-            VALUES (%s, %s)
-            RETURNING otp;
+            INSERT INTO otp (user_id, ip, otp)
+            VALUES (%s, %s, %s);
         """
         with self.conn() as conn:
             c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(invalidate_query, (self.id,))
             c.execute(create_query, create_params)
-            otp = c.fetchone()[0]
             conn.commit()
-        return otp
+        return new_otp
 
     def authenticate(self, ip, otp) -> TokenData:
         """
@@ -217,24 +236,22 @@ class User(BaseModel, DBModel):
         :return: TokenData
         :raise: ValueError if OTP doesn't match or is expired
         """
-        query = """
+        token_id, hashed_otp = self._find_token(ip=ip)
+
+        if not pwd_context.verify(otp, hashed_otp):
+            raise ValueError("Bad token")
+
+        update_query = """
             UPDATE otp
             SET expires = NOW()
-            WHERE
-                user_id = %s AND
-                ip = %s AND
-                otp = %s AND
-                NOW() < expires
-            RETURNING id
+            WHERE 
+                id = %s
         """
         with self.conn() as conn:
             c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(query, (self.id, ip, otp))
-            if c.rowcount < 1:
-                raise ValueError("Invalid OTP")
-            valid_id = c.fetchone()[0]
+            c.execute(update_query, (token_id,))
             conn.commit()
-        return TokenData(user_id=self.id, session_id=valid_id)
+        return TokenData(user_id=self.id, session_id=token_id)
 
 
 async def get_token(jwt_raw: str = Depends(oauth2_scheme)) -> TokenData:

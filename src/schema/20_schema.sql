@@ -26,12 +26,11 @@ CREATE TABLE IF NOT EXISTS otp (
     user_id int references users(id) NOT NULL,
     ts timestamp with time zone NOT NULL DEFAULT now(),
     ip inet NOT NULL,
-    expires timestamp with time zone NOT NULL DEFAULT (now() + '30 minutes'::interval),
-    otp text DEFAULT gen_random_uuid()
+    expires timestamp with time zone NOT NULL DEFAULT (now() + '5 minutes'::interval),
+    otp text NOT NULL
 );
 -- XXX: should readonly user have access to otp? 
-
-CREATE INDEX otp_user_id_ip_otp ON otp(user_id, ip, otp);
+CREATE INDEX otp_user_id_ip_otp ON otp(user_id, ip);
 
 CREATE TABLE IF NOT EXISTS channel (
     channel_uuid uuid DEFAULT gen_random_uuid() PRIMARY KEY,

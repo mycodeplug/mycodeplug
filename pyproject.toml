@@ -12,6 +12,7 @@ psycopg2-binary = "^2.9.1"
 uvicorn = "^0.15.0"
 python-jose = "^3.3.0"
 python-multipart = "^0.0.5"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
