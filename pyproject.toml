@@ -13,6 +13,7 @@ uvicorn = "^0.15.0"
 python-jose = "^3.3.0"
 python-multipart = "^0.0.5"
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+httpx = "^0.20.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
