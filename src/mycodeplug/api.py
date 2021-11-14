@@ -1,6 +1,7 @@
 import importlib.metadata
 import logging
 import os
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from .user import (
     AuthenticationError,
+    EditableUser,
     get_current_active,
     otp_delivery,
     Token,
@@ -126,3 +128,20 @@ async def get_users_me(current_user: User = Depends(get_current_active)) -> User
     :return: User information
     """
     return current_user
+
+
+@app.post("/users/me")
+async def post_users_me(data: EditableUser, request: Request, otp: Optional[str] = None, current_user: User = Depends(get_current_active), deliver = Depends(otp_delivery)):
+    updated_settings = data.dict(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+    if "email" in updated_settings:
+        if otp is not None:
+            current_user.authenticate(ip=request.client.host, otp=otp)
+        else:
+            # handle email updates specially, to validate the new address
+            current_user.email = data.email
+            otp = current_user.login(ip=request.client.host)
+            deliver(current_user, otp)
+            return {"detail": "Resubmit request with updated OTP"}
+    for k, v in updated_settings.items():
+        setattr(current_user, k, v)
+    current_user.save()
