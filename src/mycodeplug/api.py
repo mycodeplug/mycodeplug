@@ -1,4 +1,6 @@
 import importlib.metadata
+import logging
+import os
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -9,6 +11,13 @@ from .user import get_current_active, Token, User
 APP_NAME = "mycodeplug"
 
 app = FastAPI()
+
+# set logging based on MYCODEPLUG_LOGLEVEL
+app_loglevel = getattr(logging, os.environ.get("MYCODEPLUG_LOGLEVEL", "INFO").upper())
+uvicorn_logger = logging.getLogger("uvicorn")
+logger = logging.getLogger(APP_NAME)
+logger.setLevel(app_loglevel)
+logger.handlers = uvicorn_logger.handlers
 
 
 class RootData(BaseModel):
