@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from .user import get_current_active, Token, User
+from .user import AuthenticationError, get_current_active, Token, UnknownUser, User
 
 APP_NAME = "mycodeplug"
 
@@ -58,10 +58,11 @@ async def login(email: str, request: Request):
     """
     try:
         user = User(email=email).lookup()
-    except KeyError:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    except UnknownUser:
+        user = User(email=email, created_ip=request.client.host).save()
+        logger.info("Created a new user for {}".format(email))
     # XXX: send s.otp via email!
-    print("{} magic token is: {}".format(user.name, user.login(request.client.host)))
+    logger.warning("{} magic token is: {}".format(user.name, user.login(request.client.host)))
     return
 
 
@@ -74,17 +75,13 @@ def _token(email: str, otp: str, request: Request) -> Token:
     :param request: the request, must match the IP that requested /login
     :return: oauth Token
     """
-    try:
-        token_data = (
-            User(email=email).lookup().authenticate(ip=request.client.host, otp=otp)
-        )
-        return Token(
-            access_token=token_data.to_jwt(),
-            token_type="bearer",
-        )
-    except (KeyError, ValueError):
-        pass
-    raise HTTPException(status_code=400, detail="Incorrect username or password")
+    token_data = (
+        User(email=email).lookup().authenticate(ip=request.client.host, otp=otp)
+    )
+    return Token(
+        access_token=token_data.to_jwt(),
+        token_type="bearer",
+    )
 
 
 @app.post("/token", response_model=Token)
