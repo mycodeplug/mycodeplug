@@ -122,6 +122,7 @@ class User(BaseModel, DBModel):
     created_ip inet NOT NULL,
     email text UNIQUE NOT NULL,
     enabled boolean NOT NULL DEFAULT true,
+    admin boolean NOT NULL DEFAULT false,
     name text,
     data jsonb
     """
@@ -131,6 +132,7 @@ class User(BaseModel, DBModel):
     created_ip: Optional[Union[IPv4Address, IPv6Address]] = None
     email: str
     enabled: bool = True
+    admin: bool = False
     name: Optional[str] = None
     data: Dict[str, Any] = {}
 
@@ -157,7 +159,7 @@ class User(BaseModel, DBModel):
             param = self.id
             condition = "id = %s"
         query = """
-            SELECT id, created, created_ip, email, enabled, name, data
+            SELECT id, created, created_ip, email, enabled, admin, name, data
             FROM users
             WHERE {}
             LIMIT 1
@@ -176,6 +178,7 @@ class User(BaseModel, DBModel):
                 created_ip,
                 self.email,
                 self.enabled,
+                self.admin,
                 self.name,
                 data,
             ) = row
@@ -194,13 +197,14 @@ class User(BaseModel, DBModel):
             str(self.created_ip),
             self.email,
             self.enabled,
+            self.admin,
             self.name,
             json.dumps(self.data) if self.data else None,
         ]
         if self.id is None:
             query = """
-                INSERT INTO users (created, created_ip, email, enabled, name, data)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO users (created, created_ip, email, enabled, admin, name, data)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """
         else:
@@ -210,6 +214,7 @@ class User(BaseModel, DBModel):
                     created_ip = %s,
                     email = %s,
                     enabled = %s,
+                    admin = %s,
                     name = %s,
                     data = %s
                 WHERE id = %s
@@ -243,8 +248,7 @@ class User(BaseModel, DBModel):
         """
         Request login for the given user.
 
-        A given user can only have one active OTP at any given time. Subsequent
-        logins will invalidate previously issued OTPs.
+        A given user can only have one active OTP at any given time.
 
         :param ip: IP address of the request (auth must match!)
         :return: otp used to authenticate the session

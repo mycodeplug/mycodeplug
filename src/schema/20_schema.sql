@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_ip inet NOT NULL,
     email text UNIQUE NOT NULL,
     enabled boolean NOT NULL DEFAULT true,
+    admin boolean NOT NULL DEFAULT false,
     name text,
     data jsonb
 );
