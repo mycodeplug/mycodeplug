@@ -41,7 +41,7 @@ async def root() -> RootData:
 
 
 @app.post("/login")
-def login(email: str, request: Request, deliver = Depends(otp_delivery)):
+def login(email: str, request: Request, deliver=Depends(otp_delivery)):
     """
     Trigger a login request for the given email address.
 
@@ -86,9 +86,7 @@ def _token(email: str, otp: str, request: Request) -> Token:
 
 
 @app.post("/token", response_model=Token)
-def token(
-    request: Request, form_data: OAuth2PasswordRequestForm = Depends()
-) -> Token:
+def token(request: Request, form_data: OAuth2PasswordRequestForm = Depends()) -> Token:
     """
     Standard OAuth2 Password endpoint
 
@@ -130,9 +128,11 @@ def post_users_me(
     request: Request,
     otp: Optional[str] = None,
     current_user: User = Depends(get_current_active),
-    deliver = Depends(otp_delivery),
+    deliver=Depends(otp_delivery),
 ):
-    updated_settings = data.dict(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+    updated_settings = data.dict(
+        exclude_none=True, exclude_unset=True, exclude_defaults=True
+    )
     if "email" in updated_settings:
         if otp is not None:
             current_user.authenticate(ip=request.client.host, otp=otp)

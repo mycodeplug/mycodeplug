@@ -24,7 +24,7 @@ Your one-time password is {otp}. This password expires in 5 minutes.
 Use the following link to login: {link}
 
 -MyCodeplug
-"""
+""",
 }
 
 logger = getLogger(__name__)
@@ -34,6 +34,7 @@ def otp_delivery():
     """
     :return: callable accepting a User and otp string, arranging for it to be sent to the user
     """
+
     def deliver(user: User, otp: str):
         data = OTP_MESSAGE.copy()
         data["to"] = user.email
@@ -42,11 +43,7 @@ def otp_delivery():
             otp=otp,
             link=urljoin(BASE_URL, "/magic/{}/{}".format(user.email, otp)),
         )
-        httpx.post(
-            MG_API,
-            data=data,
-            auth=("api", TOKEN)
-        ).raise_for_status()
+        httpx.post(MG_API, data=data, auth=("api", TOKEN)).raise_for_status()
         return {"detail": "new OTP sent"}
 
     return deliver

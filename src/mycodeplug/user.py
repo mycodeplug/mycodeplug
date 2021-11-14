@@ -33,11 +33,7 @@ class AuthenticationError(HTTPException):
     DEFAULT_DETAIL = "Incorrect email or password"
     """The response seen by the user, NO SENSITIVE DATA!"""
 
-    def __init__(
-        self,
-        ctx: str = "",
-        **kwargs
-    ):
+    def __init__(self, ctx: str = "", **kwargs):
         self.ctx = ctx
         super().__init__(
             status_code=kwargs.pop("status_code", self.DEFAULT_STATUS_CODE),
@@ -261,7 +257,7 @@ class User(BaseModel, DBModel):
                 raise IncorrectOTP(detail="Previous token still active")
         except ExpiredOTP:
             old_token_data = None
-        new_otp = "{:06}".format(random.randint(0,999999))
+        new_otp = "{:06}".format(random.randint(0, 999999))
         hashed_otp = pwd_context.hash(new_otp)
         create_params = [
             self.id,
@@ -308,6 +304,7 @@ class User(BaseModel, DBModel):
 
 class EditableUser(BaseModel):
     """Components of the User that the User can edit"""
+
     email: Optional[str] = None
     name: Optional[str] = None
     data: Dict[str, Any] = None
@@ -315,6 +312,7 @@ class EditableUser(BaseModel):
 
 class AdminEditableUser(EditableUser):
     """Components of the User that an admin can edit"""
+
     enabled: Optional[bool] = True
 
 
@@ -354,6 +352,7 @@ def local_otp_delivery():
     """
     :return: callable accepting a User and otp string, arranging for it to be sent to the user
     """
+
     def deliver(user: User, otp: str):
         # XXX: send s.otp via email!
         print(
