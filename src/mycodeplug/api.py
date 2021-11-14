@@ -1,5 +1,4 @@
 import importlib.metadata
-import logging
 import os
 from typing import Optional
 
@@ -7,11 +6,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from .logging import getLogger
+from .mail import otp_delivery
 from .user import (
     AuthenticationError,
     EditableUser,
     get_current_active,
-    otp_delivery,
     Token,
     UnknownUser,
     User,
@@ -20,13 +20,7 @@ from .user import (
 APP_NAME = "mycodeplug"
 
 app = FastAPI()
-
-# set logging based on MYCODEPLUG_LOGLEVEL
-app_loglevel = getattr(logging, os.environ.get("MYCODEPLUG_LOGLEVEL", "INFO").upper())
-uvicorn_logger = logging.getLogger("uvicorn")
-logger = logging.getLogger(APP_NAME)
-logger.setLevel(app_loglevel)
-logger.handlers = uvicorn_logger.handlers
+logger = getLogger(APP_NAME)
 
 
 class RootData(BaseModel):
@@ -47,7 +41,7 @@ async def root() -> RootData:
 
 
 @app.post("/login")
-async def login(email: str, request: Request, deliver = Depends(otp_delivery)):
+def login(email: str, request: Request, deliver = Depends(otp_delivery)):
     """
     Trigger a login request for the given email address.
 
@@ -92,7 +86,7 @@ def _token(email: str, otp: str, request: Request) -> Token:
 
 
 @app.post("/token", response_model=Token)
-async def token(
+def token(
     request: Request, form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Token:
     """
@@ -106,7 +100,7 @@ async def token(
 
 
 @app.get("/magic/{email}/{otp}", response_model=Token)
-async def magic(email: str, otp: str, request: Request) -> Token:
+def magic(email: str, otp: str, request: Request) -> Token:
     """
     Magic link login: XXX: Needs to be a JS application to save
     the token client side.
@@ -131,7 +125,13 @@ async def get_users_me(current_user: User = Depends(get_current_active)) -> User
 
 
 @app.post("/users/me")
-async def post_users_me(data: EditableUser, request: Request, otp: Optional[str] = None, current_user: User = Depends(get_current_active), deliver = Depends(otp_delivery)):
+def post_users_me(
+    data: EditableUser,
+    request: Request,
+    otp: Optional[str] = None,
+    current_user: User = Depends(get_current_active),
+    deliver = Depends(otp_delivery),
+):
     updated_settings = data.dict(exclude_none=True, exclude_unset=True, exclude_defaults=True)
     if "email" in updated_settings:
         if otp is not None:

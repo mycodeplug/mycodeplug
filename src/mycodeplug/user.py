@@ -328,7 +328,7 @@ async def get_token(jwt_raw: str = Depends(oauth2_scheme)) -> TokenData:
     return TokenData.from_jwt(jwt_raw)
 
 
-async def get_current(token_data: TokenData = Depends(get_token)) -> User:
+def get_current(token_data: TokenData = Depends(get_token)) -> User:
     """
     Fetch the User from the oauth session token.
 
@@ -338,7 +338,7 @@ async def get_current(token_data: TokenData = Depends(get_token)) -> User:
     return User.from_token(token_data)
 
 
-async def get_current_active(current: User = Depends(get_current)) -> User:
+def get_current_active(current: User = Depends(get_current)) -> User:
     """
     Provide an enabled User from the oauth session token (or raise HTTP 400).
 
@@ -350,7 +350,7 @@ async def get_current_active(current: User = Depends(get_current)) -> User:
     return current
 
 
-def otp_delivery():
+def local_otp_delivery():
     """
     :return: callable accepting a User and otp string, arranging for it to be sent to the user
     """
