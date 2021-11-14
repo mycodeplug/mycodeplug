@@ -306,6 +306,18 @@ class User(BaseModel, DBModel):
         return TokenData(user_id=self.id, session_id=token_id)
 
 
+class EditableUser(BaseModel):
+    """Components of the User that the User can edit"""
+    email: Optional[str] = None
+    name: Optional[str] = None
+    data: Dict[str, Any] = None
+
+
+class AdminEditableUser(EditableUser):
+    """Components of the User that an admin can edit"""
+    enabled: Optional[bool] = True
+
+
 async def get_token(jwt_raw: str = Depends(oauth2_scheme)) -> TokenData:
     """
     Depends returns a decoded TokenData (or raises Exception).
