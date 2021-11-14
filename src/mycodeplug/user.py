@@ -336,3 +336,20 @@ async def get_current_active(current: User = Depends(get_current)) -> User:
     if not current.enabled:
         raise InactiveUser()
     return current
+
+
+def otp_delivery():
+    """
+    :return: callable accepting a User and otp string, arranging for it to be sent to the user
+    """
+    def deliver(user: User, otp: str):
+        # XXX: send s.otp via email!
+        print(
+            "{} magic token is: {}".format(
+                user.name or user.email,
+                otp,
+            ),
+        )
+        return {"detail": "new OTP sent"}
+
+    return deliver

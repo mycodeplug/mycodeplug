@@ -6,7 +6,14 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from .user import AuthenticationError, get_current_active, Token, UnknownUser, User
+from .user import (
+    AuthenticationError,
+    get_current_active,
+    otp_delivery,
+    Token,
+    UnknownUser,
+    User,
+)
 
 APP_NAME = "mycodeplug"
 
@@ -38,7 +45,7 @@ async def root() -> RootData:
 
 
 @app.post("/login")
-async def login(email: str, request: Request):
+async def login(email: str, request: Request, deliver = Depends(otp_delivery)):
     """
     Trigger a login request for the given email address.
 
@@ -61,9 +68,7 @@ async def login(email: str, request: Request):
     except UnknownUser:
         user = User(email=email, created_ip=request.client.host).save()
         logger.info("Created a new user for {}".format(email))
-    # XXX: send s.otp via email!
-    logger.warning("{} magic token is: {}".format(user.name, user.login(request.client.host)))
-    return
+    return deliver(user, user.login(ip=request.client.host))
 
 
 def _token(email: str, otp: str, request: Request) -> Token:
