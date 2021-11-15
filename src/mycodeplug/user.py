@@ -16,8 +16,13 @@ from passlib.context import CryptContext
 import psycopg2.extensions
 import psycopg2.extras
 from pydantic import BaseModel
+from sqlalchemy import Column, DateTime, JSON
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy.sql import func, text
+from sqlmodel import SQLModel, Field, select, Session
+from sqlmodel.sql.expression import Select
 
-from .db import DBModel
+from . import db
 
 
 SECRET_KEY = os.environ["SECRET_KEY"]
@@ -111,136 +116,71 @@ class TokenData(BaseModel):
             raise InvalidToken("Invalid Token format: {}".format(payload))
 
 
-class User(BaseModel, DBModel):
+class User(SQLModel, table=True):
     """
-    id SERIAL PRIMARY KEY,
-    created timestamp with time zone NOT NULL DEFAULT now(),
-    created_ip inet NOT NULL,
-    email text UNIQUE NOT NULL,
-    enabled boolean NOT NULL DEFAULT true,
-    admin boolean NOT NULL DEFAULT false,
-    name text,
-    data jsonb
+    A database-backed user account
     """
 
-    id: Optional[int] = None
-    created: datetime.datetime = datetime.datetime.now(tz=datetime.timezone.utc)
-    created_ip: Optional[Union[IPv4Address, IPv6Address]] = None
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created: datetime.datetime = Field(
+        default=None,
+        sa_column=Column(
+            "created",
+            DateTime(timezone=True),
+            server_default=func.now(),
+        ),
+    )
+    created_ip: str
     email: str
     enabled: bool = True
     admin: bool = False
     name: Optional[str] = None
-    data: Dict[str, Any] = {}
+    data: dict = Field(
+        default_factory=dict,
+        sa_column=Column("data", JSON),
+    )
 
     @classmethod
-    def from_token(cls, token: TokenData) -> "User":
-        return cls.by_id(id=token.user_id)
+    def from_query(cls, query: Select, session: Optional[Session] = None) -> "User":
+        with db.get_session(session) as s:
+            result = s.exec(query)
+            return result.one()
 
     @classmethod
-    def by_id(cls, id: int) -> "User":
-        return cls(id=id, email="").lookup()
+    def from_email(cls, email: str, session: Optional[Session] = None) -> "User":
+        try:
+            return cls.from_query(
+                select(cls).where(cls.email == email), session=session
+            )
+        except NoResultFound:
+            raise UnknownUser(email)
 
-    def lookup(self) -> "User":
-        """
-        Refresh this instance from database.
+    @classmethod
+    def from_id(cls, id: int, session: Optional[Session] = None) -> "User":
+        try:
+            return cls.from_query(select(cls).where(cls.id == id), session=session)
+        except NoResultFound:
+            raise UnknownUser(id)
 
-        Prefer lookup by id, if specified. Otherwise lookup by email address.
+    @classmethod
+    def from_token(cls, token: TokenData, session: Optional[Session] = None) -> "User":
+        return cls.from_id(token.user_id, session=session)
 
-        :return: User instance if email is found
-        :raise: UnknownUser if id or email is not found
-        """
-        param = self.email
-        condition = "email = %s"
-        if self.id is not None:
-            param = self.id
-            condition = "id = %s"
-        query = """
-            SELECT id, created, created_ip, email, enabled, admin, name, data
-            FROM users
-            WHERE {}
-            LIMIT 1
-        """.format(
-            condition
+    def _find_token(self, ip: str, session: Optional[Session] = None) -> "Otp":
+        query = (
+            select(Otp)
+            .where(Otp.user_id == self.id)
+            .where(Otp.ip == ip)
+            .where(Otp.expires > func.now())
         )
-        with self.conn() as conn:
-            c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(query, (param,))
-            if c.rowcount < 1:
-                raise UnknownUser(condition % param)
-            row = c.fetchone()
-            (
-                self.id,
-                self.created,
-                created_ip,
-                self.email,
-                self.enabled,
-                self.admin,
-                self.name,
-                data,
-            ) = row
-            self.created_ip = ip_address(created_ip)
-            self.data = data or {}
-        return self
-
-    def save(self):
-        """
-        Persist data from this instance to the database.
-
-        :return: self
-        """
-        params = [
-            self.created,
-            str(self.created_ip),
-            self.email,
-            self.enabled,
-            self.admin,
-            self.name,
-            json.dumps(self.data) if self.data else None,
-        ]
-        if self.id is None:
-            query = """
-                INSERT INTO users (created, created_ip, email, enabled, admin, name, data)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            """
-        else:
-            query = """
-                UPDATE users
-                SET created = %s,
-                    created_ip = %s,
-                    email = %s,
-                    enabled = %s,
-                    admin = %s,
-                    name = %s,
-                    data = %s
-                WHERE id = %s
-            """
-            params.append(self.id)
-        with self.conn() as conn:
-            c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(query, params)
-            if self.id is None:
-                self.id = c.fetchone()[0]
-            conn.commit()
-        return self
-
-    def _find_token(self, ip) -> (int, str):
-        get_query = """
-            SELECT id, otp
-            FROM otp
-            WHERE
-                user_id = %s AND
-                ip = %s AND
-                NOW() < expires
-        """
-        with self.conn() as conn:
-            c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(get_query, (self.id, ip))
-            if c.rowcount != 1:
+        with db.get_session(session) as s:
+            result = s.exec(query)
+            try:
+                return result.one()
+            except NoResultFound:
                 raise ExpiredOTP("Expired token for {}".format(ip))
-            return c.fetchone()
 
-    def login(self, ip) -> str:
+    def login(self, ip: str, session: Optional[Session] = None) -> str:
         """
         Request login for the given user.
 
@@ -251,30 +191,22 @@ class User(BaseModel, DBModel):
         :raise: IncorrectOTP if the given (user, ip) pair already has
             an active token (must wait before granting another).
         """
-        try:
-            old_token_data = self._find_token(ip)
-            if old_token_data:
-                raise IncorrectOTP(detail="Previous token still active")
-        except ExpiredOTP:
-            old_token_data = None
-        new_otp = "{:06}".format(random.randint(0, 999999))
-        hashed_otp = pwd_context.hash(new_otp)
-        create_params = [
-            self.id,
-            str(ip),
-            hashed_otp,
-        ]
-        create_query = """
-            INSERT INTO otp (user_id, ip, otp)
-            VALUES (%s, %s, %s);
-        """
-        with self.conn() as conn:
-            c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(create_query, create_params)
-            conn.commit()
+        with db.get_session(session) as s:
+            try:
+                old_token_data = self._find_token(ip, session=s)
+                if old_token_data:
+                    raise IncorrectOTP(detail="Previous token still active")
+            except ExpiredOTP:
+                old_token_data = None
+            new_otp = "{:06}".format(random.randint(0, 999999))
+            hashed_otp = pwd_context.hash(new_otp)
+            s.add(Otp(user_id=self.id, ip=ip, otp=hashed_otp))
+            s.commit()
         return new_otp
 
-    def authenticate(self, ip, otp) -> TokenData:
+    def authenticate(
+        self, ip: str, otp: str, session: Optional[Session] = None
+    ) -> TokenData:
         """
         Validate OTP and generate a session token.
 
@@ -284,22 +216,43 @@ class User(BaseModel, DBModel):
         :raise: ExpiredOTP if the OTP doesn't exist or is expired
         :raise: IncorrectOTP if OTP is found, but doesn't match
         """
-        token_id, hashed_otp = self._find_token(ip=ip)
+        with db.get_session(session) as s:
+            token = self._find_token(ip=ip, session=s)
 
-        if not pwd_context.verify(otp, hashed_otp):
-            raise IncorrectOTP("Bad token")
+            if not pwd_context.verify(otp, token.otp):
+                raise IncorrectOTP("Bad token")
 
-        update_query = """
-            UPDATE otp
-            SET expires = NOW()
-            WHERE 
-                id = %s
-        """
-        with self.conn() as conn:
-            c: psycopg2.extensions.cursor = conn.cursor()
-            c.execute(update_query, (token_id,))
-            conn.commit()
-        return TokenData(user_id=self.id, session_id=token_id)
+            token.expires = func.now()
+            s.add(token)
+            s.commit()
+            return TokenData(user_id=self.id, session_id=token.id)
+
+
+class Otp(SQLModel, table=True):
+    """
+    One-time password for email / magic login.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    ts: datetime.datetime = Field(
+        default=None,
+        sa_column=Column(
+            "ts",
+            DateTime(timezone=True),
+            server_default=func.now(),
+        ),
+    )
+    ip: str
+    expires: datetime.datetime = Field(
+        default=None,
+        sa_column=Column(
+            "expires",
+            DateTime(timezone=True),
+            server_default=text("(now() + '5 minutes'::interval)"),
+        ),
+    )
+    otp: str
 
 
 class EditableUser(BaseModel):

@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from .db import session
 from .logging import getLogger
 from .mail import otp_delivery
 from .user import (
@@ -41,7 +42,12 @@ async def root() -> RootData:
 
 
 @app.post("/login")
-def login(email: str, request: Request, deliver=Depends(otp_delivery)):
+def login(
+    email: str,
+    request: Request,
+    deliver=Depends(otp_delivery),
+    session=Depends(session),
+):
     """
     Trigger a login request for the given email address.
 
@@ -60,11 +66,14 @@ def login(email: str, request: Request, deliver=Depends(otp_delivery)):
     :return: None -- the token is emailed (or printed, in dev mode).
     """
     try:
-        user = User(email=email).lookup()
+        user = User.from_email(email, session=session)
     except UnknownUser:
-        user = User(email=email, created_ip=request.client.host).save()
+        user = User(email=email, created_ip=request.client.host)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
         logger.info("Created a new user for {}".format(email))
-    return deliver(user, user.login(ip=request.client.host))
+    return deliver(user, user.login(ip=request.client.host, session=session))
 
 
 def _token(email: str, otp: str, request: Request) -> Token:
@@ -76,9 +85,7 @@ def _token(email: str, otp: str, request: Request) -> Token:
     :param request: the request, must match the IP that requested /login
     :return: oauth Token
     """
-    token_data = (
-        User(email=email).lookup().authenticate(ip=request.client.host, otp=otp)
-    )
+    token_data = User.from_email(email).authenticate(ip=request.client.host, otp=otp)
     return Token(
         access_token=token_data.to_jwt(),
         token_type="bearer",
@@ -129,19 +136,21 @@ def post_users_me(
     otp: Optional[str] = None,
     current_user: User = Depends(get_current_active),
     deliver=Depends(otp_delivery),
+    session=Depends(session),
 ):
     updated_settings = data.dict(
         exclude_none=True, exclude_unset=True, exclude_defaults=True
     )
     if "email" in updated_settings:
         if otp is not None:
-            current_user.authenticate(ip=request.client.host, otp=otp)
+            current_user.authenticate(ip=request.client.host, otp=otp, session=session)
         else:
             # handle email updates specially, to validate the new address
             current_user.email = data.email
-            otp = current_user.login(ip=request.client.host)
+            otp = current_user.login(ip=request.client.host, session=session)
             deliver(current_user, otp)
             return {"detail": "Resubmit request with updated OTP"}
     for k, v in updated_settings.items():
         setattr(current_user, k, v)
-    current_user.save()
+    session.add(current_user)
+    session.commit()
