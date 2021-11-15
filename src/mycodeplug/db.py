@@ -4,8 +4,8 @@ from typing import cast, Iterator
 from sqlmodel import create_engine, Session, SQLModel
 
 
-psycopg2.extras.register_default_json(globally=True)
-psycopg2.extras.register_default_jsonb(globally=True)
+# psycopg2.extras.register_default_json(globally=True)
+# psycopg2.extras.register_default_jsonb(globally=True)
 
 
 global_engine = create_engine("postgresql:///", echo=True)
