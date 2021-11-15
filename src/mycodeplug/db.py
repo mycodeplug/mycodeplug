@@ -1,25 +1,31 @@
 from contextlib import contextmanager
+from typing import cast, Iterator
 
-import psycopg2
-import psycopg2.extras
-import psycopg2.extensions
-import psycopg2.pool
+from sqlmodel import create_engine, Session, SQLModel
 
 
 psycopg2.extras.register_default_json(globally=True)
 psycopg2.extras.register_default_jsonb(globally=True)
 
 
-class DBModel:
-    pool = None
+global_engine = create_engine("postgresql:///", echo=True)
 
-    @classmethod
-    @contextmanager
-    def conn(cls) -> psycopg2.extensions.connection:
-        if cls.pool is None:
-            cls.pool = psycopg2.pool.SimpleConnectionPool(minconn=1, maxconn=10)
-        try:
-            c = cls.pool.getconn()
-            yield c
-        finally:
-            cls.pool.putconn(c)
+
+def initialize_metadata():
+    from . import channel
+    from . import user
+
+    SQLModel.metadata.create_all(global_engine)
+
+
+def session(session=None, engine=None):
+    if session is None:
+        if engine is None:
+            engine = global_engine
+        with Session(engine) as session:
+            yield session
+    else:
+        yield session
+
+
+get_session = contextmanager(session)
