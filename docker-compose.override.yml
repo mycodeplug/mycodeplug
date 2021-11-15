@@ -3,6 +3,7 @@ version: '3.1'
 services:
   app:
     environment:
+      BASE_URL: http://127.0.0.1:8009
       PGPASSWORD: DEVsKNOWwHATtHEYREdOING
       SECRET_KEY: aa408ae0266f2530913410f1a53c0f285d3659a482576001e1055335a33a1d2b
     volumes:
